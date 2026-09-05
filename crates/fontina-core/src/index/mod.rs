@@ -742,8 +742,6 @@ impl Index {
         Ok(out)
     }
 
-    /// Faces that share an identity hash (same outlines and names across containers) or a
-    /// PostScript name (installing both would conflict).
     /// Faces whose character coverage overlaps `face_id` by at least `min`.
     ///
     /// The declared family is often the wrong unit for "these belong together", and there
@@ -820,7 +818,11 @@ impl Index {
                 continue;
             };
             out.push(Related {
-                metrics_agree: self.metrics_key(id)? == target_metrics,
+                // Two unknowns are not an agreement, so `None == None` must not count.
+                metrics_agree: match (self.metrics_key(id)?, target_metrics) {
+                    (Some(a), Some(b)) => a == b,
+                    _ => false,
+                },
                 face,
                 overlap: score,
                 shared,
@@ -837,20 +839,30 @@ impl Index {
         Ok(out)
     }
 
-    /// The four numbers that decide whether identical coverage means identical design.
-    fn metrics_key(&self, face_id: i64) -> Result<(u16, i16, i16, bool)> {
+    /// The four numbers that decide whether identical coverage means identical design,
+    /// or `None` for a row whose stored metadata this build cannot read.
+    ///
+    /// `None` rather than an error: every M4 backfill tolerates exactly this row, and
+    /// `list` keeps working on an index that holds one. Propagating here would let a
+    /// single unreadable face — very likely not even the one being asked about — fail the
+    /// whole of `related`, and so all of `fontina variants`. An unknown key compares
+    /// equal to nothing, so such a candidate is reported with `metrics_agree: false`,
+    /// which is the honest answer: fontina does not know that they agree.
+    fn metrics_key(&self, face_id: i64) -> Result<Option<(u16, i16, i16, bool)>> {
         let json: String = self.conn.query_row(
             "SELECT metadata FROM faces WHERE id = ?1",
             params![face_id],
             |r| r.get(0),
         )?;
-        let face: FaceMetadata = serde_json::from_str(&json)?;
-        Ok((
+        let Ok(face) = serde_json::from_str::<FaceMetadata>(&json) else {
+            return Ok(None);
+        };
+        Ok(Some((
             face.metrics.units_per_em,
             face.metrics.ascender,
             face.metrics.descender,
             face.metrics.is_fixed_pitch,
-        ))
+        )))
     }
 
     fn ranges_of(&self, face_id: i64) -> Result<Vec<[u32; 2]>> {
@@ -867,6 +879,8 @@ impl Index {
         Ok(self.summaries(&[face_id])?.into_iter().next())
     }
 
+    /// Faces that share an identity hash (same outlines and names across containers) or a
+    /// PostScript name (installing both would conflict).
     pub fn duplicates(&self) -> Result<Vec<DuplicateGroup>> {
         let mut groups = Vec::new();
         for (reason, column) in [

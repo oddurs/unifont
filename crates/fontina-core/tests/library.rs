@@ -693,6 +693,65 @@ fn coverage_overlap_finds_the_same_font_in_two_containers() {
     assert!(index.related(99999, 0.0).is_err());
 }
 
+/// One row this build cannot read must not take the whole query with it.
+///
+/// Every M4 backfill tolerates exactly this row and says why, and `list` keeps working on
+/// an index that holds one. `related` read the metadata of every *candidate* to compare
+/// their metrics, and propagated — so a single unreadable face, very likely not even the
+/// one being asked about, failed all of `fontina variants`.
+#[test]
+fn a_candidate_with_unreadable_metadata_does_not_fail_the_whole_question() {
+    let dir = std::env::temp_dir().join(format!("fontina-related-bad-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("index.db");
+    {
+        let mut idx = Index::open(&db).unwrap();
+        fontina_core::scan::scan(&mut idx, &[fixtures()], &ScanOptions::default()).unwrap();
+    }
+
+    let target = {
+        let idx = Index::open(&db).unwrap();
+        let inter = idx
+            .list(&FaceFilter {
+                family: Some("Inter".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        // Corrupt the twin — the one candidate that matters most to this target.
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute(
+            "UPDATE faces SET metadata = '{ not json' WHERE id = ?1",
+            [inter[1].id],
+        )
+        .unwrap();
+        inter[0].id
+    };
+
+    let idx = Index::open(&db).unwrap();
+    let related = idx
+        .related(target, 0.0)
+        .expect("one bad row is not a reason to answer nothing");
+    assert!(!related.is_empty());
+
+    // The corrupt candidate is still offered, still scored — coverage comes from
+    // `face_ranges`, which is intact — and reported as not known to agree.
+    let twin = related
+        .iter()
+        .max_by(|a, b| a.overlap.total_cmp(&b.overlap))
+        .unwrap();
+    assert_eq!(
+        twin.overlap, 1.0,
+        "the coverage question is still answerable"
+    );
+    assert!(
+        !twin.metrics_agree,
+        "fontina cannot read its metrics, so it must not claim they agree"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The score is a real Jaccard, not a coverage ratio dressed up as one.
 ///
 /// A subset scores below 1.0 even though every codepoint it has is shared, because the
