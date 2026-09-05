@@ -110,6 +110,43 @@ fn no_conflicts_says_so_when_there_was_nothing_to_compare_against() {
     );
 }
 
+/// `activate` says it before the first activation and not after.
+///
+/// The note is context for someone starting out. Printed on every activation for the
+/// life of an index it is noise, and a reader who meets the same note every time learns
+/// to skip notes — including the one that matters.
+#[cfg(unix)]
+#[test]
+fn activate_says_it_before_the_first_one_only() {
+    if !cfg!(all(unix, not(target_os = "macos"))) {
+        eprintln!("skipped: activation reaches the running login session on this system");
+        return;
+    }
+    let s = session("first-activation");
+    let listed: serde_json::Value =
+        serde_json::from_slice(&s.run(&["list", "--json"]).stdout).expect("JSON");
+    let id = listed[0]["id"].to_string();
+
+    let first = s.run(&["activate", "--session", &id]);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&first.stderr).contains("scan --system"),
+        "the first activation carries the note"
+    );
+
+    let second = s.run(&["activate", "--session", &id]);
+    assert!(
+        !String::from_utf8_lossy(&second.stderr).contains("scan --system"),
+        "and the next one does not: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let _ = s.run(&["deactivate", &id]);
+}
+
 /// Once a system directory is indexed, the note is gone and the clash is found.
 ///
 /// The font is put in the per-user font directory by hand, which is what another program
