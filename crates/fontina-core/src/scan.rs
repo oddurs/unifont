@@ -43,12 +43,92 @@ pub struct ScanReport {
     pub unchanged: usize,
     pub removed: usize,
     pub failed: Vec<ScanFailure>,
+    /// Files that are fonts in a format this program does not read.
+    ///
+    /// A scan used to say nothing about these, because the walk filters on the file
+    /// extension before it opens anything, so a Type 1 or a bitmap font was never
+    /// considered and never mentioned. Three fonts in a directory reported
+    /// `1 candidates … 0 failed`, and for a font manager that is the worst answer
+    /// available: a parse failure can be acted on, but a file that was never looked at
+    /// leaves someone believing their library is indexed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<SkippedFile>,
+}
+
+/// A font this program will not read, and what it is.
+#[derive(Debug, serde::Serialize, schemars::JsonSchema)]
+pub struct SkippedFile {
+    pub path: String,
+    /// The format, as a name a person would recognise.
+    pub format: &'static str,
 }
 
 #[derive(Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct ScanFailure {
     pub path: String,
     pub error: String,
+}
+
+/// Font formats this program does not read, recognised by their first bytes.
+///
+/// Parsing goes through fontations, which reads the sfnt family and nothing else, so
+/// none of these will ever be indexed. That is a decision rather than an omission — but
+/// a decision the person scanning is entitled to hear about, because the alternative is
+/// that their fonts quietly do not appear.
+///
+/// The signatures are matched on content, not on the extension, because the fonts that
+/// prompted this carry no extension at all: macOS ships `HelveLTMM` and `TimesLTMM`,
+/// datafork Type 1 Multiple Masters, with bare names.
+fn unsupported_format(head: &[u8], len: u64) -> Option<&'static str> {
+    if head.starts_with(&[0x80, 0x01]) {
+        return Some("Type 1 (PFB)");
+    }
+    if head.starts_with(b"%!PS") {
+        return Some("Type 1 (PostScript)");
+    }
+    if head.starts_with(b"STARTFONT") {
+        return Some("BDF bitmap");
+    }
+    if head.starts_with(&[0x01, b'f', b'c', b'p']) {
+        return Some("PCF bitmap");
+    }
+    if head.starts_with(b"MZ") {
+        return Some("Windows FON/FNT");
+    }
+    if is_resource_fork(head, len) {
+        return Some("Mac resource fork (.dfont, datafork Type 1)");
+    }
+    None
+}
+
+/// Whether these are the first bytes of a Macintosh resource fork.
+///
+/// The header is four big-endian offsets — data, map, data length, map length — and the
+/// map is the last thing in the file, so the last two must add up to the file's own
+/// size. That arithmetic is the check: a four-byte magic would not do, because
+/// `00 00 01 00` is a common enough opening for a file that is nothing of the kind,
+/// and being wrong here means telling somebody their spreadsheet is a font.
+///
+/// This is the shape macOS ships `HelveLTMM` and `TimesLTMM` in — datafork Type 1
+/// Multiple Masters, with no extension at all, which is why the extension filter never
+/// saw them and why sniffing had to be by content.
+fn is_resource_fork(head: &[u8], len: u64) -> bool {
+    let Some(bytes) = head.get(0..16) else {
+        return false;
+    };
+    let be = |at: usize| -> u64 {
+        u64::from(u32::from_be_bytes([
+            bytes[at],
+            bytes[at + 1],
+            bytes[at + 2],
+            bytes[at + 3],
+        ]))
+    };
+    let (data_at, map_at, data_len, map_len) = (be(0), be(4), be(8), be(12));
+    data_at == 256
+        && map_len > 0
+        && map_at.checked_add(map_len) == Some(len)
+        && data_at + data_len <= map_at
 }
 
 pub fn is_font_candidate(path: &Path) -> bool {
@@ -60,12 +140,32 @@ pub fn is_font_candidate(path: &Path) -> bool {
 
 /// Collect candidate font files under `roots`.
 pub fn collect_candidates(roots: &[PathBuf], follow_symlinks: bool) -> Vec<PathBuf> {
+    walk(roots, follow_symlinks).0
+}
+
+/// Candidates, and the fonts passed over because this program cannot read their format.
+///
+/// The second half costs one `read` of sixteen bytes per non-candidate file, and only
+/// for files small enough to be worth opening. A directory of source code pays for a
+/// handful of reads; a directory of Type 1 fonts gets told that is what it holds.
+pub fn walk(roots: &[PathBuf], follow_symlinks: bool) -> (Vec<PathBuf>, Vec<SkippedFile>) {
     let mut out = Vec::new();
+    let mut skipped = Vec::new();
+    let mut consider = |path: PathBuf| {
+        if is_font_candidate(&path) {
+            out.push(path);
+            return;
+        }
+        if let Some(format) = sniff(&path) {
+            skipped.push(SkippedFile {
+                path: path.to_string_lossy().into_owned(),
+                format,
+            });
+        }
+    };
     for root in roots {
         if root.is_file() {
-            if is_font_candidate(root) {
-                out.push(root.clone());
-            }
+            consider(root.clone());
             continue;
         }
         for entry in WalkDir::new(root)
@@ -73,14 +173,33 @@ pub fn collect_candidates(roots: &[PathBuf], follow_symlinks: bool) -> Vec<PathB
             .into_iter()
             .filter_map(|e| e.ok())
         {
-            if entry.file_type().is_file() && is_font_candidate(entry.path()) {
-                out.push(entry.into_path());
+            if entry.file_type().is_file() {
+                consider(entry.into_path());
             }
         }
     }
     out.sort();
     out.dedup();
-    out
+    skipped.sort_by(|a, b| a.path.cmp(&b.path));
+    (out, skipped)
+}
+
+/// The first bytes of a file, if it is a font in a format this program does not read.
+///
+/// A font is never tiny and never enormous, so both ends are refused before the file is
+/// opened: it keeps a scan of a source tree from reading every object file, and a scan
+/// of a media directory from touching a video.
+fn sniff(path: &Path) -> Option<&'static str> {
+    const MIN: u64 = 64;
+    const MAX: u64 = 64 * 1024 * 1024;
+    let len = std::fs::metadata(path).ok()?.len();
+    if !(MIN..=MAX).contains(&len) {
+        return None;
+    }
+    let mut head = [0u8; 16];
+    let mut file = std::fs::File::open(path).ok()?;
+    let read = std::io::Read::read(&mut file, &mut head).ok()?;
+    unsupported_format(&head[..read], len)
 }
 
 /// One parsed file: its info and faces, or the error.
@@ -148,9 +267,10 @@ pub fn scan(index: &mut Index, roots: &[PathBuf], opts: &ScanOptions) -> Result<
         .iter()
         .map(|r| std::fs::canonicalize(r).unwrap_or_else(|_| r.clone()))
         .collect();
-    let candidates = collect_candidates(&roots, opts.follow_symlinks);
+    let (candidates, skipped) = walk(&roots, opts.follow_symlinks);
     let mut report = ScanReport {
         candidates: candidates.len(),
+        skipped,
         ..Default::default()
     };
 

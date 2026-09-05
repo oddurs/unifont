@@ -1107,6 +1107,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "skipped": {
+          "description": "Files that are fonts in a format this program does not read.\n\nA scan used to say nothing about these, because the walk filters on the file\nextension before it opens anything, so a Type 1 or a bitmap font was never\nconsidered and never mentioned. Three fonts in a directory reported\n`1 candidates … 0 failed`, and for a font manager that is the worst answer\navailable: a parse failure can be acted on, but a file that was never looked at\nleaves someone believing their library is indexed.",
+          "items": {
+            "$ref": "#/$defs/SkippedFile"
+          },
+          "type": "array"
+        },
         "unchanged": {
           "format": "uint",
           "minimum": 0,
@@ -1175,6 +1182,23 @@
         "error"
       ],
       "type": "string"
+    },
+    "SkippedFile": {
+      "description": "A font this program will not read, and what it is.",
+      "properties": {
+        "format": {
+          "description": "The format, as a name a person would recognise.",
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "format"
+      ],
+      "type": "object"
     },
     "Source": {
       "properties": {
