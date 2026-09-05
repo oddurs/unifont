@@ -2871,7 +2871,12 @@ fn system_dirs_are_indexed(index: &Index) -> bool {
     })
 }
 
-/// Say what this index cannot see, once, on stderr.
+/// Say what this index cannot see, on stderr.
+///
+/// `conflicts` says it whenever it finds nothing, because that is the question being
+/// asked and the answer is only as good as what was indexed. `activate` says it only
+/// before the first activation: there it is context for someone starting out, not an
+/// answer, and repeating it on every activation is how a reader learns to skip notes.
 fn note_the_blind_spot(index: &Index) {
     if !system_dirs_are_indexed(index) {
         eprintln!(
@@ -2984,8 +2989,12 @@ fn run_activate(
     let ids = resolve_all_ids(&index, targets)?;
     let activator = fontina_platform::activator();
     let conflicts = collect_conflicts(&index, &ids)?;
-    if conflicts.is_empty() {
-        // Nothing to report, and possibly nothing to report *with*: say which.
+    if conflicts.is_empty() && index.activations()?.is_empty() {
+        // Nothing to report, and possibly nothing to report *with*: say which — but
+        // only the first time, when nothing has been activated through fontina yet.
+        // The reader who has done this before has read it, and a note that prints on
+        // every activation for the life of an index is noise, which is how a person
+        // learns to stop reading notes.
         note_the_blind_spot(&index);
     }
     if !conflicts.is_empty() {
