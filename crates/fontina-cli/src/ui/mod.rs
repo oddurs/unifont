@@ -493,6 +493,7 @@ impl App {
             KeyCode::Char('m') => self.open_glyphs(),
             KeyCode::Char('w') => self.open_sheet(sheet::Kind::Waterfall)?,
             KeyCode::Char('C') => self.open_sheet(sheet::Kind::Compare)?,
+            KeyCode::Char('P') => self.open_sheet(sheet::Kind::Specimen)?,
             KeyCode::Char('s') => self.open_specimen()?,
             KeyCode::Tab => {
                 self.focus = match self.focus {
@@ -606,6 +607,9 @@ impl App {
                 self.faces.iter().map(|f| f.id).collect()
             }
             sheet::Kind::Compare => self.current_face_ids(),
+            // Every family the current filter left, in the order the listing has them,
+            // represented by the face the listing already chose to stand for it.
+            sheet::Kind::Specimen => self.families.iter().map(|f| f.representative).collect(),
         };
         // Read every face once, here. The sheet is drawn on every frame and holds what
         // it needs; querying per row per frame is the mistake #36 fixed for the pane.
@@ -616,7 +620,10 @@ impl App {
             }
         }
         if faces.is_empty() {
-            self.status = "no face on show".into();
+            self.status = match kind {
+                sheet::Kind::Specimen => "no families on show".into(),
+                _ => "no face on show".into(),
+            };
             return Ok(());
         }
         let sheet = match kind {
@@ -626,6 +633,7 @@ impl App {
                 self.controls.forced_features(),
             ),
             sheet::Kind::Compare => sheet::Sheet::compare(faces, self.preview_size),
+            sheet::Kind::Specimen => sheet::Sheet::specimen(faces, self.preview_size),
         };
         self.status = format!(
             "{}   (fontina specimen {})",
@@ -697,7 +705,11 @@ impl App {
             return Ok(());
         };
         match code {
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('w') | KeyCode::Char('C') => {
+            KeyCode::Esc
+            | KeyCode::Char('q')
+            | KeyCode::Char('w')
+            | KeyCode::Char('C')
+            | KeyCode::Char('P') => {
                 self.sheet = None;
             }
             KeyCode::Down | KeyCode::Char('j') => sheet.scroll_by(1, visible),
@@ -1653,7 +1665,7 @@ impl App {
     }
 
     fn draw_keys(&self, f: &mut ratatui::Frame, area: Rect) {
-        let keys = " / search  ⇥ facets  ⏎ open  ⌫ back  t tag  c collection  a/A activate  d deactivate  i install  u uninstall  e text  +/- size  s specimen  R rescan  ? help  q quit";
+        let keys = " / search  ⇥ facets  ⏎ open  ⌫ back  t tag  c collection  a/A activate  d deactivate  i install  u uninstall  e text  +/- size  P specimens  s export  R rescan  ? help  q quit";
         f.render_widget(
             Paragraph::new(Span::styled(keys, Style::default().fg(Color::DarkGray))),
             area,
@@ -1675,7 +1687,9 @@ impl App {
  Glyphs      m opens the glyph map: h/l pick a block, j/k scroll, / finds a
              codepoint (U+0041, 0x41, 41) or a block by name
  Sheets      w waterfalls the face down the size ladder; C compares every face
-             the selection stands for. j/k scroll, +/- resize a comparison
+             the selection stands for; P sets every family in its own face, which
+             is the one view that answers what a typeface looks like without
+             opening it. j/k scroll, +/- resize
  Specimen    s writes an HTML specimen for the selection and opens it in your
              browser, for the things a terminal cannot show honestly
  Index       R rescans every source (fontina scan --prune)
@@ -3128,6 +3142,86 @@ mod tests {
             "the key line is the last row on the screen"
         );
         insta::assert_snapshot!(drawn);
+    }
+
+    /// The view the browser existed five milestones without: every family on show,
+    /// each one setting its own name in its own face.
+    #[test]
+    fn the_specimen_sheet_sets_every_family_in_its_own_face() {
+        let mut app = app();
+        app.open_sheet(sheet::Kind::Specimen).unwrap();
+
+        let sheet = app.sheet.as_ref().expect("P opens a sheet");
+        assert_eq!(sheet.kind(), sheet::Kind::Specimen);
+        assert_eq!(
+            sheet.rows().len(),
+            app.families.len(),
+            "one row per family on show, not one per face"
+        );
+
+        // The words in each row are that row's own family name. This is the whole
+        // feature: a comparison sheet would set every row in the same pangram.
+        for row in sheet.rows() {
+            assert_eq!(
+                sheet.text_for(row, None),
+                row.face.names.family,
+                "a specimen row is set in the words of its own name"
+            );
+        }
+
+        let drawn = stable_frame(&mut app, 120, 36);
+        assert!(drawn.contains("specimen"), "{drawn}");
+        insta::assert_snapshot!(drawn);
+    }
+
+    /// The snapshot above cannot prove this one. `stable_frame` sets the sample text to
+    /// a single space on purpose, so that a snapshot never depends on a rasteriser —
+    /// which means every row in it is blank by design, and a specimen sheet that drew
+    /// nothing at all would produce exactly the same file.
+    ///
+    /// So this asserts the thing the feature is: that the family's name, set in the
+    /// family's own face, puts ink on the screen.
+    #[test]
+    fn a_specimen_row_actually_draws_the_name() {
+        let mut app = app();
+        app.open_sheet(sheet::Kind::Specimen).unwrap();
+        let sheet = app.sheet.as_ref().unwrap();
+        let row = sheet
+            .rows()
+            .iter()
+            .find(|r| r.face.names.family == "Inter")
+            .expect("Inter is among the fixtures");
+
+        let words = sheet.text_for(row, None);
+        assert_eq!(words, "Inter");
+        let opts = sheet.options(row, words, 100);
+
+        let mut cache = preview::Cache::default();
+        let lines = cache.lines(&row.face, &opts, (row.size.ceil() as u32 * 2).max(2));
+        let ink: usize = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.chars().filter(|c| *c == '▀').count())
+            .sum();
+        assert!(
+            ink > 0,
+            "a specimen row must draw the name; got {} lines and no ink",
+            lines.len()
+        );
+    }
+
+    /// The sample text applies to a comparison and a waterfall, and must not to this:
+    /// a specimen whose rows all say the same thing is a comparison.
+    #[test]
+    fn a_chosen_text_does_not_override_a_specimen_row() {
+        let mut app = app();
+        app.open_sheet(sheet::Kind::Specimen).unwrap();
+        let sheet = app.sheet.as_ref().unwrap();
+        let row = &sheet.rows()[0];
+        // `text_for` honours a chosen string for every kind; the browser is what
+        // declines to pass one for a specimen.
+        assert_eq!(sheet.text_for(row, Some("Handgloves")), "Handgloves");
+        assert_eq!(sheet.text_for(row, None), row.face.names.family);
     }
 
     #[test]

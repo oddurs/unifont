@@ -26,10 +26,22 @@ use fontina_core::render::RenderOptions;
 use fontina_core::typography;
 use ratatui::text::Line;
 
+/// The SPDX identifier, or a word saying there is not one. Shown beside a family name
+/// in the specimen sheet because "may I use this" is the question that follows "do I
+/// like this", and answering it here saves opening the face to find out.
+fn licence_of(face: &FaceMetadata) -> String {
+    face.license
+        .spdx
+        .clone()
+        .unwrap_or_else(|| "no licence stated".into())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Waterfall,
     Compare,
+    /// One row per family, each set in the face that family names.
+    Specimen,
 }
 
 /// One rendering in the sheet: which face, how big, how it is set, and what to call it.
@@ -88,6 +100,35 @@ impl Sheet {
                     size,
                     variations: variations.clone(),
                     features: features.clone(),
+                })
+                .collect(),
+            scroll: 0,
+            built: None,
+        }
+    }
+
+    /// One row per family, each row setting that family's own name in its own face.
+    ///
+    /// This is the view the browser was missing. Every other list in the tool names a
+    /// typeface in the terminal's face, which tells a reader everything except the one
+    /// thing they opened a font manager to find out. Here the name of the font is drawn
+    /// by the font.
+    ///
+    /// It is a sheet rather than a column because of arithmetic rather than taste. A
+    /// half-block cell is one pixel wide and two tall, so a list pane twenty-four
+    /// columns across is a twenty-four pixel canvas, and no type is legible in that. The
+    /// full frame is a hundred and forty, which is a readable line.
+    pub fn specimen(faces: Vec<FaceMetadata>, size: f32) -> Self {
+        Sheet {
+            kind: Kind::Specimen,
+            rows: faces
+                .into_iter()
+                .map(|face| Row {
+                    label: format!("{}  {}", face.names.family, licence_of(&face)),
+                    face,
+                    size,
+                    variations: Vec::new(),
+                    features: Vec::new(),
                 })
                 .collect(),
             scroll: 0,
@@ -191,6 +232,9 @@ impl Sheet {
             // thing standing between a reader and that screen was `parse::english`
             // dropping a name that trims empty, which is a coupling between two crates
             // that nothing declared.
+            // The point of the view: the words are the name of the family, so the
+            // reader is looking at the typeface spelling its own name.
+            Kind::Specimen => row.face.names.family.clone(),
             Kind::Waterfall => row
                 .face
                 .names
@@ -243,6 +287,12 @@ impl Sheet {
             Kind::Compare => format!(
                 "compare — {} face(s) at {:.0} px, +/- to resize",
                 self.rows.len(),
+                self.size()
+            ),
+            Kind::Specimen => format!(
+                "specimen — {} famil{} at {:.0} px, +/- to resize",
+                self.rows.len(),
+                if self.rows.len() == 1 { "y" } else { "ies" },
                 self.size()
             ),
         }

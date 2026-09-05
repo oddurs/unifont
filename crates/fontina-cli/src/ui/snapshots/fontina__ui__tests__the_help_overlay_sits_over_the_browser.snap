@@ -1,5 +1,6 @@
 ---
 source: crates/fontina-cli/src/ui/mod.rs
+assertion_line: 3245
 expression: drawn
 ---
 ┌ 6 faces ───────────────┐┌ 5 families ──────────────────────────────────┐┌ Details ───────────────────────────────────┐
@@ -21,17 +22,17 @@ expression: drawn
 │  variable    │ Glyphs      m opens the glyph map: h/l pick a block, j/k scroll, / finds a             │              │
 │Color         │             codepoint (U+0041, 0x41, 41) or a block by name                            │              │
 │  color       │ Sheets      w waterfalls the face down the size ladder; C compares every face          │              │
-│Spacing       │             the selection stands for. j/k scroll, +/- resize a comparison              │              │
-│  proportional│ Specimen    s writes an HTML specimen for the selection and opens it in your           │              │
-│Script        │             browser, for the things a terminal cannot show honestly                    │              │
-│  Latn        │ Index       R rescans every source (fontina scan --prune)                              │              │
-│  Arab        │ Quit        q                                                                          │              │
-│  Zyyy        │                                                                                        │              │
-│  Cyrl        │ The status line shows the CLI command for what you see. Everything here is a command.  │              │
+│Spacing       │             the selection stands for; P sets every family in its own face, which       │              │
+│  proportional│             is the one view that answers what a typeface looks like without            │              │
+│Script        │             opening it. j/k scroll, +/- resize                                         │              │
+│  Latn        │ Specimen    s writes an HTML specimen for the selection and opens it in your           │              │
+│  Arab        │             browser, for the things a terminal cannot show honestly                    │              │
+│  Zyyy        │ Index       R rescans every source (fontina scan --prune)                              │              │
+│  Cyrl        │ Quit        q                                                                          │              │
 │  Zinh        │                                                                                        │              │
-│  Grek        │ any key to close                                                                       │              │
+│  Grek        │ The status line shows the CLI command for what you see. Everything here is a command.  │              │
 │Language      │                                                                                        │              │
-│  en          │                                                                                        │              │
+│  en          │ any key to close                                                                       │              │
 │  CAT         └────────────────────────────────────────────────────────────────────────────────────────┘              │
 │  TRK                 3 ││                                              ││                                            │
 │  AZE                 2 ││                                              ││                                            │
