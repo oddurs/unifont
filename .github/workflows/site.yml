@@ -61,3 +61,32 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # The check branch protection can require. Everything above is path-filtered, so on a
+  # pull request that touches none of those paths GitHub creates no run at all and reports
+  # nothing — and an unreported required check is not a passing one, it is one that waits
+  # for ever. #38 changed only PLAN.md and got exactly the eight checks already required.
+  #
+  # `if: always()` makes this report whatever the jobs above did, including nothing. A
+  # skipped dependency is a pass, because the paths this workflow guards were untouched;
+  # a failure or a cancellation is a failure. So a docs-only pull request goes green in
+  # seconds without running an Astro build.
+  #
+  # `needs.*.result` covers every dependency listed below, so adding a job to `needs`
+  # is enough — there is no second list to keep in step.
+  gate:
+    name: site
+    needs: [build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job above either passed or did not need to run
+        run: |
+          results='${{ join(needs.*.result, " ") }}'
+          echo "dependencies: $results"
+          for r in $results; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error::a job this gate stands for reported $r"; exit 1 ;;
+            esac
+          done
