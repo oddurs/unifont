@@ -842,6 +842,28 @@ fn run() -> Result<()> {
                 for f in &report.failed {
                     eprintln!("  ! {}: {}", f.path, f.error);
                 }
+                // Said out loud rather than left to be noticed. A font in a format
+                // fontina does not read is not a failure and not a success; it is a
+                // file the scan walked past, and the person scanning is the only one
+                // who can decide whether that matters.
+                if !report.skipped.is_empty() {
+                    let mut kinds: Vec<&str> = report.skipped.iter().map(|s| s.format).collect();
+                    kinds.sort_unstable();
+                    kinds.dedup();
+                    println!(
+                        "skipped {} font(s) in {} this program does not read: {}",
+                        report.skipped.len(),
+                        if kinds.len() == 1 {
+                            "a format"
+                        } else {
+                            "formats"
+                        },
+                        kinds.join(", ")
+                    );
+                    for s in &report.skipped {
+                        eprintln!("  - {} ({})", s.path, s.format);
+                    }
+                }
             }
         }
         Command::List(args) => {
