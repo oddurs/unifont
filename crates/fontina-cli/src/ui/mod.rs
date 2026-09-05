@@ -198,6 +198,14 @@ enum Flow {
     Quit,
 }
 
+/// How many families a specimen sheet will draw before it stops.
+///
+/// Each row is a query, a font read from disk and a rasterisation, all in the frame
+/// that opens the sheet, and all thrown away on the next terminal resize. Sixty-four is
+/// far more than fits on a screen and small enough that opening it on a library of
+/// thousands is instant rather than a hang.
+const SPECIMEN_CAP: usize = 64;
+
 impl App {
     fn new(index: Index) -> Result<Self> {
         Self::with_activator(index, fontina_platform::activator())
@@ -493,6 +501,7 @@ impl App {
             KeyCode::Char('m') => self.open_glyphs(),
             KeyCode::Char('w') => self.open_sheet(sheet::Kind::Waterfall)?,
             KeyCode::Char('C') => self.open_sheet(sheet::Kind::Compare)?,
+            KeyCode::Char('P') => self.open_sheet(sheet::Kind::Specimen)?,
             KeyCode::Char('s') => self.open_specimen()?,
             KeyCode::Tab => {
                 self.focus = match self.focus {
@@ -606,7 +615,24 @@ impl App {
                 self.faces.iter().map(|f| f.id).collect()
             }
             sheet::Kind::Compare => self.current_face_ids(),
+            // Inside an open family `reload` clears `families`, so collecting
+            // representatives there yields nothing and `P` becomes a dead key on a full
+            // index. The listing is the family's own faces, so specimen those instead —
+            // the same hazard `Compare` has an arm for, two lines above.
+            sheet::Kind::Specimen if self.open_family.is_some() => {
+                self.faces.iter().map(|f| f.id).collect()
+            }
+            // Every family the current filter left, in the order the listing has them,
+            // represented by the face the listing already chose to stand for it.
+            sheet::Kind::Specimen => self.families.iter().map(|f| f.representative).collect(),
         };
+        // A waterfall is nine rows and a comparison is one family's faces. A specimen
+        // is every family in the index, and `filter` sets no limit — so on a real
+        // library this is thousands of queries, thousands of file reads and thousands of
+        // rasterisations, in one frame, thrown away again on the next terminal resize.
+        // Cap it and say so in the title rather than hang.
+        let total = ids.len();
+        let ids: Vec<i64> = ids.into_iter().take(SPECIMEN_CAP).collect();
         // Read every face once, here. The sheet is drawn on every frame and holds what
         // it needs; querying per row per frame is the mistake #36 fixed for the pane.
         let mut faces = Vec::with_capacity(ids.len());
@@ -616,7 +642,10 @@ impl App {
             }
         }
         if faces.is_empty() {
-            self.status = "no face on show".into();
+            self.status = match kind {
+                sheet::Kind::Specimen => "no families on show".into(),
+                _ => "no face on show".into(),
+            };
             return Ok(());
         }
         let sheet = match kind {
@@ -626,7 +655,17 @@ impl App {
                 self.controls.forced_features(),
             ),
             sheet::Kind::Compare => sheet::Sheet::compare(faces, self.preview_size),
+            sheet::Kind::Specimen => {
+                sheet::Sheet::specimen(faces, self.preview_size, self.open_family.is_some())
+            }
         };
+        if kind == sheet::Kind::Specimen && total > SPECIMEN_CAP {
+            self.status = format!(
+                "showing the first {SPECIMEN_CAP} of {total}; narrow the filter to see the rest"
+            );
+            self.sheet = Some(sheet);
+            return Ok(());
+        }
         self.status = format!(
             "{}   (fontina specimen {})",
             sheet.title(),
@@ -697,7 +736,11 @@ impl App {
             return Ok(());
         };
         match code {
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('w') | KeyCode::Char('C') => {
+            KeyCode::Esc
+            | KeyCode::Char('q')
+            | KeyCode::Char('w')
+            | KeyCode::Char('C')
+            | KeyCode::Char('P') => {
                 self.sheet = None;
             }
             KeyCode::Down | KeyCode::Char('j') => sheet.scroll_by(1, visible),
@@ -1159,7 +1202,13 @@ impl App {
         let visible = inner.height as usize;
         self.sheet_visible = visible;
         let width = inner.width;
-        let text = self.preview_text.clone();
+        // A specimen's words live on its rows, so the sheet's sample text is not its to
+        // use. Withholding it here as well as ignoring it there keeps `is_built_for`
+        // honest: otherwise pressing `e` rebuilds a sheet whose output cannot change.
+        let text = match self.sheet.as_ref().map(sheet::Sheet::kind) {
+            Some(sheet::Kind::Specimen) => None,
+            _ => self.preview_text.clone(),
+        };
 
         // Lay the sheet out once per pane width and sample text, not once per frame:
         // a waterfall is nine rasterisations and a comparison is one per face.
@@ -1653,7 +1702,7 @@ impl App {
     }
 
     fn draw_keys(&self, f: &mut ratatui::Frame, area: Rect) {
-        let keys = " / search  ⇥ facets  ⏎ open  ⌫ back  t tag  c collection  a/A activate  d deactivate  i install  u uninstall  e text  +/- size  s specimen  R rescan  ? help  q quit";
+        let keys = " / search  ⇥ facets  ⏎ open  ⌫ back  t tag  c collection  a/A activate  d deactivate  i install  u uninstall  e text  +/- size  P specimens  s export  R rescan  ? help  q quit";
         f.render_widget(
             Paragraph::new(Span::styled(keys, Style::default().fg(Color::DarkGray))),
             area,
@@ -1675,7 +1724,9 @@ impl App {
  Glyphs      m opens the glyph map: h/l pick a block, j/k scroll, / finds a
              codepoint (U+0041, 0x41, 41) or a block by name
  Sheets      w waterfalls the face down the size ladder; C compares every face
-             the selection stands for. j/k scroll, +/- resize a comparison
+             the selection stands for; P sets every family in its own face, which
+             is the one view that answers what a typeface looks like without
+             opening it. j/k scroll, +/- resize
  Specimen    s writes an HTML specimen for the selection and opens it in your
              browser, for the things a terminal cannot show honestly
  Index       R rescans every source (fontina scan --prune)
@@ -1685,7 +1736,10 @@ impl App {
 
  any key to close";
         let w = 90.min(area.width);
-        let h = 26.min(area.height);
+        // Two spare lines. `Paragraph` without `.wrap()` truncates in silence, so a box
+        // sized exactly to the text means the next line anyone adds deletes "any key to
+        // close" with no error anywhere.
+        let h = 28.min(area.height);
         let rect = Rect::new(
             area.x + (area.width - w) / 2,
             area.y + (area.height - h) / 2,
@@ -3128,6 +3182,131 @@ mod tests {
             "the key line is the last row on the screen"
         );
         insta::assert_snapshot!(drawn);
+    }
+
+    /// The view the browser existed five milestones without: every family on show,
+    /// each one setting its own name in its own face.
+    #[test]
+    fn the_specimen_sheet_sets_every_family_in_its_own_face() {
+        let mut app = app();
+        app.open_sheet(sheet::Kind::Specimen).unwrap();
+
+        let sheet = app.sheet.as_ref().expect("P opens a sheet");
+        assert_eq!(sheet.kind(), sheet::Kind::Specimen);
+        assert_eq!(
+            sheet.rows().len(),
+            app.families.len(),
+            "one row per family on show, not one per face"
+        );
+
+        // The words in each row are that row's own family name. This is the whole
+        // feature: a comparison sheet would set every row in the same pangram.
+        for row in sheet.rows() {
+            assert_eq!(
+                sheet.text_for(row, None),
+                row.face.names.family,
+                "a specimen row is set in the words of its own name"
+            );
+        }
+
+        let drawn = stable_frame(&mut app, 120, 36);
+        assert!(drawn.contains("specimen"), "{drawn}");
+        insta::assert_snapshot!(drawn);
+    }
+
+    /// The snapshot above cannot prove this one. `stable_frame` sets the sample text to
+    /// a single space on purpose, so that a snapshot never depends on a rasteriser —
+    /// which means every row in it is blank by design, and a specimen sheet that drew
+    /// nothing at all would produce exactly the same file.
+    ///
+    /// So this asserts the thing the feature is: that the family's name, set in the
+    /// family's own face, puts ink on the screen.
+    #[test]
+    fn a_specimen_row_actually_draws_the_name() {
+        let mut app = app();
+        app.open_sheet(sheet::Kind::Specimen).unwrap();
+        let sheet = app.sheet.as_ref().unwrap();
+        let row = sheet
+            .rows()
+            .iter()
+            .find(|r| r.face.names.family == "Inter")
+            .expect("Inter is among the fixtures");
+
+        let words = sheet.text_for(row, None);
+        assert_eq!(words, "Inter");
+        let opts = sheet.options(row, words, 100);
+
+        let mut cache = preview::Cache::default();
+        let lines = cache.lines(&row.face, &opts, (row.size.ceil() as u32 * 2).max(2));
+        let ink: usize = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.chars().filter(|c| *c == '▀').count())
+            .sum();
+        assert!(
+            ink > 0,
+            "a specimen row must draw the name; got {} lines and no ink",
+            lines.len()
+        );
+    }
+
+    /// The sample text applies to a comparison and a waterfall, and must not to this.
+    /// A specimen whose rows all say the same thing is a comparison, so `e` then `P`
+    /// would have quietly deleted the whole feature.
+    ///
+    /// The first version of this test asserted the opposite and passed: it checked that
+    /// `text_for` honours a chosen string, and its comment claimed the browser declined
+    /// to pass one. The browser passed it. The words live on the row now, so the
+    /// override is impossible rather than merely unintended.
+    #[test]
+    fn a_sample_text_cannot_turn_a_specimen_into_a_comparison() {
+        let mut app = app();
+        app.preview_text = Some("Hamburgefonstiv".into());
+        app.open_sheet(sheet::Kind::Specimen).unwrap();
+        let sheet = app.sheet.as_ref().unwrap();
+        for row in sheet.rows() {
+            assert_eq!(
+                sheet.text_for(row, Some("Hamburgefonstiv")),
+                row.face.names.family,
+                "a specimen row keeps its own name even when a sample text is set"
+            );
+        }
+    }
+
+    /// `reload` clears the family list while a family is open, so collecting
+    /// representatives there returned nothing and `P` reported "no families on show"
+    /// against a full index. `Compare` has an arm for exactly this; this one did not.
+    #[test]
+    fn the_specimen_key_works_inside_an_open_family() {
+        let mut app = app();
+        select_family(&mut app, "Inter");
+        app.open_family().unwrap();
+        app.open_sheet(sheet::Kind::Specimen).unwrap();
+
+        let sheet = app.sheet.as_ref().expect("P works inside a family");
+        assert_eq!(sheet.rows().len(), app.faces.len());
+        // Within one family every row shares a family name, so the words carry the
+        // style too, or every row would set the same word.
+        for row in sheet.rows() {
+            let words = sheet.text_for(row, None);
+            assert!(words.starts_with("Inter"), "{words}");
+            assert!(
+                words.len() > "Inter".len(),
+                "the style distinguishes the row"
+            );
+        }
+    }
+
+    /// The title and the help both offered `+/-`, and `resize` refused anything that was
+    /// not a comparison, so the promise was silent and false.
+    #[test]
+    fn a_specimen_resizes_like_a_comparison() {
+        let mut app = app();
+        app.open_sheet(sheet::Kind::Specimen).unwrap();
+        let sheet = app.sheet.as_mut().unwrap();
+        let before = sheet.size();
+        assert!(sheet.resize(4.0), "a specimen resizes");
+        assert!(sheet.size() > before);
     }
 
     #[test]

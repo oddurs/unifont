@@ -6,34 +6,34 @@ expression: drawn
 │Weight                  ││Amiri                                   1     ││Amiri Regular                               │
 │  200 ExtraLight      1 ││Bricolage Grotesque                     1 V   ││style     weight 400 · width 100% · normal  │
 │  300 Light           1 ││Inter                                   2     ││glyphs    6710 · 1699 codepoints · Arab Latn│
-│  400 Regular         6 ││Nabla                                   1 VC  ││Zyyy Zinh                                   │
-│  500 Medium  ┌────────────────────────────────────────────────────────────────────────────────────────┐nit liga locl │
-│  600 SemiBold│fontina ui                                                                              │              │
-│  700 Bold    │                                                                                        │              │
-│  800 ExtraBol│ Move        j/k ↑/↓ PgUp/PgDn g/G        Tab cycles facets, list, controls             │              │
-│Width         │ Filter      / type to search  Esc clears   Enter/Space toggles a facet   x clears all  │              │
-│  75% Condense│ Families    Enter opens a family, Backspace/Esc closes it                              │              │
-│  87.5% SemiCo│ Organise    t tag the selection   c add it to a collection                             │-Regular.ttf  │
-│  100% Normal │ Activate    a for the user, A until logout, i install a copy, d deactivate, u uninstall│              │
-│Style         │ Preview     e sets the sample text   + / - change the size                             │              │
-│  upright     │ Controls    h/l ←/→ move an axis (H/L by ten)   Space toggles a feature                │              │
-│Variable      │             n/p step through named instances   0 resets everything                     │s             │
-│  variable    │ Glyphs      m opens the glyph map: h/l pick a block, j/k scroll, / finds a             │              │
-│Color         │             codepoint (U+0041, 0x41, 41) or a block by name                            │              │
-│  color       │ Sheets      w waterfalls the face down the size ladder; C compares every face          │              │
-│Spacing       │             the selection stands for. j/k scroll, +/- resize a comparison              │              │
-│  proportional│ Specimen    s writes an HTML specimen for the selection and opens it in your           │              │
-│Script        │             browser, for the things a terminal cannot show honestly                    │              │
-│  Latn        │ Index       R rescans every source (fontina scan --prune)                              │              │
-│  Arab        │ Quit        q                                                                          │              │
-│  Zyyy        │                                                                                        │              │
-│  Cyrl        │ The status line shows the CLI command for what you see. Everything here is a command.  │              │
-│  Zinh        │                                                                                        │              │
-│  Grek        │ any key to close                                                                       │              │
-│Language      │                                                                                        │              │
+│  400 Regular ┌────────────────────────────────────────────────────────────────────────────────────────┐              │
+│  500 Medium  │fontina ui                                                                              │nit liga locl │
+│  600 SemiBold│                                                                                        │              │
+│  700 Bold    │ Move        j/k ↑/↓ PgUp/PgDn g/G        Tab cycles facets, list, controls             │              │
+│  800 ExtraBol│ Filter      / type to search  Esc clears   Enter/Space toggles a facet   x clears all  │              │
+│Width         │ Families    Enter opens a family, Backspace/Esc closes it                              │              │
+│  75% Condense│ Organise    t tag the selection   c add it to a collection                             │              │
+│  87.5% SemiCo│ Activate    a for the user, A until logout, i install a copy, d deactivate, u uninstall│-Regular.ttf  │
+│  100% Normal │ Preview     e sets the sample text   + / - change the size                             │              │
+│Style         │ Controls    h/l ←/→ move an axis (H/L by ten)   Space toggles a feature                │              │
+│  upright     │             n/p step through named instances   0 resets everything                     │              │
+│Variable      │ Glyphs      m opens the glyph map: h/l pick a block, j/k scroll, / finds a             │s             │
+│  variable    │             codepoint (U+0041, 0x41, 41) or a block by name                            │              │
+│Color         │ Sheets      w waterfalls the face down the size ladder; C compares every face          │              │
+│  color       │             the selection stands for; P sets every family in its own face, which       │              │
+│Spacing       │             is the one view that answers what a typeface looks like without            │              │
+│  proportional│             opening it. j/k scroll, +/- resize                                         │              │
+│Script        │ Specimen    s writes an HTML specimen for the selection and opens it in your           │              │
+│  Latn        │             browser, for the things a terminal cannot show honestly                    │              │
+│  Arab        │ Index       R rescans every source (fontina scan --prune)                              │              │
+│  Zyyy        │ Quit        q                                                                          │              │
+│  Cyrl        │                                                                                        │              │
+│  Zinh        │ The status line shows the CLI command for what you see. Everything here is a command.  │              │
+│  Grek        │                                                                                        │              │
+│Language      │ any key to close                                                                       │              │
 │  en          │                                                                                        │              │
-│  CAT         └────────────────────────────────────────────────────────────────────────────────────────┘              │
-│  TRK                 3 ││                                              ││                                            │
+│  CAT         │                                                                                        │              │
+│  TRK         └────────────────────────────────────────────────────────────────────────────────────────┘              │
 │  AZE                 2 ││                                              ││                                            │
 └────────────────────────┘└──────────────────────────────────────────────┘└────────────────────────────────────────────┘
  $ fontina families
