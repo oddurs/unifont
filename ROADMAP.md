@@ -62,14 +62,17 @@ Helping someone find the right face rather than the one they asked for: comparis
 
 ## unfiled — Found, not yet scheduled
 
-`··········` 0% · 0 of 2 done
+`#####·····` 50% · 1 of 2 done
 
 Real findings with no milestone. Triage moves them or drops them; nothing sits here by default.
 
 ### backlog
 
 - [ ] [`0018`](https://github.com/oddurs/fontina/blob/main/cairn/items/0018-say-what-a-scan-skipped.md) Say what a scan skipped <sup>feat · p1 · core</sup>
-- [ ] [`0019`](https://github.com/oddurs/fontina/blob/main/cairn/items/0019-write-down-which-font-formats-are-in-scope.md) Write down which font formats are in scope <sup>docs · p2 · workspace</sup>
+
+### done
+
+- [x] [`0019`](https://github.com/oddurs/fontina/blob/main/cairn/items/0019-write-down-which-font-formats-are-in-scope.md) Write down which font formats are in scope <sup>docs · p2 · workspace</sup>
 
 ## m5-ship — M5 — Ship
 

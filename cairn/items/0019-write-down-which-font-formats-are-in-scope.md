@@ -2,8 +2,9 @@
 id: 19
 title: Write down which font formats are in scope
 type: docs
-status: backlog
+status: done
 milestone: unfiled
+assignee: Oddur Sigurdsson
 created: 2026-09-05
 updated: 2026-09-05
 priority: p2

@@ -62,6 +62,35 @@ Windows. Set `FONTINA_DB` or pass `--db` to put it somewhere else. You can open 
 with any SQLite client. Deleting it loses nothing that a rescan will not recreate,
 except tags, collections and source registrations.
 
+### Why can it not see my Type 1 fonts?
+
+Because it reads the sfnt family and nothing else: TrueType, OpenType, collections of
+either, and both WOFF wrappings — with every outline format, all five colour formats,
+variable axes and bitmap strikes inside them. Type 1 in either wrapping, BDF, PCF,
+Windows `.fon`, resource-fork `.dfont` and EOT are not read.
+
+That is a decision rather than an oversight, and [ADR
+0009](https://github.com/oddurs/fontina/blob/main/docs/adr/0009-sfnt-only.md) gives the
+reasoning: parsing goes through
+[fontations](https://github.com/googlefonts/fontations), and a second parser for a
+second format family is more code reading hostile input in the one place this project
+has worked hardest to keep small.
+
+It will not, however, stay quiet about it. A scan recognises those formats by their
+contents and names the files it walked past:
+
+```
+skipped 2 font(s) in a format this program does not read: Mac resource fork
+  - /System/Library/Fonts/HelveLTMM (Mac resource fork (.dfont, datafork Type 1))
+```
+
+By contents rather than by extension, because the two that prompted this — the datafork
+Type 1 Multiple Masters macOS still ships — have no extension at all.
+
+If you have a Type 1 library worth keeping, converting it is a solved problem:
+`fontforge` will turn one into an OpenType font in a line, and fontina will read the
+result.
+
 ### Can it edit or convert fonts?
 
 No, and it will not. Subsetting, format conversion and editing are
