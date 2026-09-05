@@ -29,6 +29,34 @@ use ratatui::text::Line;
 /// The SPDX identifier, or a word saying there is not one. Shown beside a family name
 /// in the specimen sheet because "may I use this" is the question that follows "do I
 /// like this", and answering it here saves opening the face to find out.
+/// What a specimen row sets: the family, or the face within an open family, and never
+/// the empty string.
+///
+/// `parse::names` defaults a missing family to `""`, so a font carrying neither a
+/// typographic nor a legacy family name renders a blank row under a blank label — the
+/// same failure the waterfall arm guards against, where a screen of nothing cannot be
+/// told from a rendering that failed.
+fn naming(face: &FaceMetadata, by_face: bool) -> String {
+    let family = face.names.family.trim();
+    let base = if family.is_empty() {
+        face.names
+            .full_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .or(face.names.postscript_name.as_deref())
+            .unwrap_or("(unnamed)")
+    } else {
+        family
+    };
+    let style = face.names.subfamily.trim();
+    if by_face && !style.is_empty() {
+        format!("{base} {style}")
+    } else {
+        base.to_string()
+    }
+}
+
 fn licence_of(face: &FaceMetadata) -> String {
     face.license
         .spdx
@@ -57,6 +85,14 @@ pub struct Row {
     /// is modal, so nothing can change them while it is up.
     pub variations: Vec<(String, f32)>,
     pub features: Vec<(String, bool)>,
+    /// The words this row sets, when they belong to the row rather than to the sheet.
+    ///
+    /// A waterfall and a comparison share one string, and the reader may replace it
+    /// with `e`. A specimen cannot: its whole claim is that each row is set in its own
+    /// name, and a sample text applied across it turns it back into the comparison it
+    /// exists not to be. Holding the words on the row is what makes that impossible
+    /// rather than merely intended.
+    pub words: Option<String>,
 }
 
 /// A sheet laid out for one pane width and one sample text.
@@ -100,6 +136,7 @@ impl Sheet {
                     size,
                     variations: variations.clone(),
                     features: features.clone(),
+                    words: None,
                 })
                 .collect(),
             scroll: 0,
@@ -118,13 +155,14 @@ impl Sheet {
     /// half-block cell is one pixel wide and two tall, so a list pane twenty-four
     /// columns across is a twenty-four pixel canvas, and no type is legible in that. The
     /// full frame is a hundred and forty, which is a readable line.
-    pub fn specimen(faces: Vec<FaceMetadata>, size: f32) -> Self {
+    pub fn specimen(faces: Vec<FaceMetadata>, size: f32, by_face: bool) -> Self {
         Sheet {
             kind: Kind::Specimen,
             rows: faces
                 .into_iter()
                 .map(|face| Row {
-                    label: format!("{}  {}", face.names.family, licence_of(&face)),
+                    label: format!("{}  {}", naming(&face, by_face), licence_of(&face)),
+                    words: Some(naming(&face, by_face)),
                     face,
                     size,
                     variations: Vec::new(),
@@ -152,6 +190,7 @@ impl Sheet {
                     size,
                     variations: Vec::new(),
                     features: Vec::new(),
+                    words: None,
                 })
                 .collect(),
             scroll: 0,
@@ -216,6 +255,11 @@ impl Sheet {
     /// the reader has not chosen any. A waterfall is one face, so it can fall back to
     /// that face's own embedded sample string.
     pub fn text_for(&self, row: &Row, chosen: Option<&str>) -> String {
+        // A row that owns its words keeps them. This is what stops `e` turning a
+        // specimen into a comparison of one string.
+        if let Some(words) = &row.words {
+            return words.clone();
+        }
         if let Some(text) = chosen {
             return text.to_string();
         }
@@ -232,9 +276,9 @@ impl Sheet {
             // thing standing between a reader and that screen was `parse::english`
             // dropping a name that trims empty, which is a coupling between two crates
             // that nothing declared.
-            // The point of the view: the words are the name of the family, so the
-            // reader is looking at the typeface spelling its own name.
-            Kind::Specimen => row.face.names.family.clone(),
+            // Unreachable in practice: every specimen row carries its own words and
+            // returned above. Kept total rather than clever.
+            Kind::Specimen => naming(&row.face, false),
             Kind::Waterfall => row
                 .face
                 .names
@@ -260,7 +304,10 @@ impl Sheet {
     /// Change the size every row is rendered at. Only a comparison has one size to
     /// change; a waterfall's sizes are the point of it.
     pub fn resize(&mut self, delta: f32) -> bool {
-        if self.kind != Kind::Compare {
+        // A specimen has one uniform size, exactly like a comparison, so it resizes for
+        // the same reason. The title and the help both promised this before the code
+        // allowed it.
+        if !matches!(self.kind, Kind::Compare | Kind::Specimen) {
             return false;
         }
         let mut changed = false;
